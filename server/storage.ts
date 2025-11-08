@@ -8,9 +8,12 @@ import {
   type InsertField,
   type Livestock,
   type InsertLivestock,
+  type ChatMessage,
+  type InsertChatMessage,
   users,
   fields,
   livestock,
+  chatMessages,
 } from "@shared/schema";
 import ws from "ws";
 
@@ -33,6 +36,10 @@ export interface IStorage {
   createLivestock(livestock: InsertLivestock): Promise<Livestock>;
   updateLivestock(id: string, livestock: Partial<InsertLivestock>): Promise<Livestock | undefined>;
   deleteLivestock(id: string): Promise<boolean>;
+  
+  getChatMessagesByUserId(userId: string, limit?: number): Promise<ChatMessage[]>;
+  createChatMessage(message: InsertChatMessage): Promise<ChatMessage>;
+  deleteChatHistory(userId: string): Promise<boolean>;
 }
 
 export class DbStorage implements IStorage {
@@ -114,6 +121,26 @@ export class DbStorage implements IStorage {
 
   async deleteLivestock(id: string): Promise<boolean> {
     const result = await this.db.delete(livestock).where(eq(livestock.id, id)).returning();
+    return result.length > 0;
+  }
+
+  async getChatMessagesByUserId(userId: string, limit: number = 50): Promise<ChatMessage[]> {
+    const result = await this.db
+      .select()
+      .from(chatMessages)
+      .where(eq(chatMessages.userId, userId))
+      .orderBy(chatMessages.createdAt)
+      .limit(limit);
+    return result;
+  }
+
+  async createChatMessage(message: InsertChatMessage): Promise<ChatMessage> {
+    const result = await this.db.insert(chatMessages).values(message).returning();
+    return result[0];
+  }
+
+  async deleteChatHistory(userId: string): Promise<boolean> {
+    const result = await this.db.delete(chatMessages).where(eq(chatMessages.userId, userId)).returning();
     return result.length > 0;
   }
 }

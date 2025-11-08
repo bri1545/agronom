@@ -6,6 +6,7 @@ import { useLanguage } from '@/contexts/LanguageContext';
 import { useToast } from '@/hooks/use-toast';
 import { queryClient, apiRequest } from '@/lib/queryClient';
 import { insertFieldSchema, type InsertField } from '@shared/schema';
+import { parseDMSCoordinate } from '@/lib/coordinates';
 import {
   Dialog,
   DialogContent,
@@ -49,6 +50,7 @@ const cropTypes = [
 export default function AddFieldDialog({ open, onOpenChange }: AddFieldDialogProps) {
   const { t, language } = useLanguage();
   const { toast } = useToast();
+  const [coordinateInput, setCoordinateInput] = useState('');
 
   const form = useForm<Omit<InsertField, 'userId'>>({
     resolver: zodResolver(insertFieldSchema.omit({ userId: true })),
@@ -60,6 +62,19 @@ export default function AddFieldDialog({ open, onOpenChange }: AddFieldDialogPro
       cropType: 'wheat',
     },
   });
+
+  const handleCoordinatePaste = (value: string) => {
+    setCoordinateInput(value);
+    const parsed = parseDMSCoordinate(value);
+    if (parsed) {
+      form.setValue('latitude', parsed.latitude.toFixed(7));
+      form.setValue('longitude', parsed.longitude.toFixed(7));
+      toast({
+        title: 'Координаты распознаны',
+        description: `Широта: ${parsed.latitude.toFixed(7)}, Долгота: ${parsed.longitude.toFixed(7)}`,
+      });
+    }
+  };
 
   const createMutation = useMutation({
     mutationFn: async (data: Omit<InsertField, 'userId'>) => {
@@ -117,6 +132,22 @@ export default function AddFieldDialog({ open, onOpenChange }: AddFieldDialogPro
                 </FormItem>
               )}
             />
+
+            <div className="space-y-2">
+              <label className="text-sm font-medium">
+                Координаты Google Maps (или вручную)
+              </label>
+              <Input
+                type="text"
+                placeholder={'Вставьте: 54°52\'59.2"N 69°14\'13.8"E'}
+                value={coordinateInput}
+                onChange={(e) => handleCoordinatePaste(e.target.value)}
+                className="font-mono"
+              />
+              <p className="text-xs text-muted-foreground">
+                Скопируйте координаты из Google Maps и вставьте сюда
+              </p>
+            </div>
 
             <div className="grid grid-cols-2 gap-4">
               <FormField

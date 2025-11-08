@@ -13,6 +13,8 @@ import {
 import { z } from "zod";
 import { registerUser, loginUser } from "./auth";
 import { chatWithAI } from "./gemini";
+import { getWeatherByCoordinates } from "./weather";
+import { analyzeField, generateFeedingPlan, getFieldRecommendations } from "./ai-analysis";
 
 declare module 'express-session' {
   interface SessionData {
@@ -116,7 +118,16 @@ export async function registerRoutes(app: Express): Promise<Server> {
         userId,
       });
       const field = await storage.createField(validatedData);
-      res.status(201).json(field);
+      
+      const analysis = await analyzeField({
+        name: field.name,
+        cropType: field.cropType,
+        area: parseFloat(field.area),
+        latitude: parseFloat(field.latitude),
+        longitude: parseFloat(field.longitude),
+      });
+      
+      res.status(201).json({ field, analysis });
     } catch (error) {
       if (error instanceof z.ZodError) {
         return res.status(400).json({ error: error.errors });
@@ -179,7 +190,13 @@ export async function registerRoutes(app: Express): Promise<Server> {
         userId,
       });
       const livestockItem = await storage.createLivestock(validatedData);
-      res.status(201).json(livestockItem);
+      
+      const feedingPlan = await generateFeedingPlan({
+        type: livestockItem.type,
+        count: livestockItem.count,
+      });
+      
+      res.status(201).json({ livestock: livestockItem, feedingPlan });
     } catch (error) {
       if (error instanceof z.ZodError) {
         return res.status(400).json({ error: error.errors });
@@ -289,6 +306,102 @@ export async function registerRoutes(app: Express): Promise<Server> {
     } catch (error) {
       console.error("Error deleting chat history:", error);
       res.status(500).json({ error: "Ошибка при удалении истории" });
+    }
+  });
+
+  app.get("/api/weather", requireAuth, async (req, res) => {
+    try {
+      const { latitude, longitude } = req.query;
+      
+      if (!latitude || !longitude) {
+        return res.status(400).json({ error: "Необходимо указать координаты" });
+      }
+      
+      const weather = await getWeatherByCoordinates(
+        parseFloat(latitude as string),
+        parseFloat(longitude as string)
+      );
+      
+      res.json(weather);
+    } catch (error) {
+      console.error("Error fetching weather:", error);
+      res.status(500).json({ error: error instanceof Error ? error.message : "Ошибка при получении погоды" });
+    }
+  });
+
+  app.post("/api/fields/:id/analyze", requireAuth, async (req, res) => {
+    try {
+      const userId = req.session.userId!;
+      const field = await storage.getField(req.params.id);
+      
+      if (!field || field.userId !== userId) {
+        return res.status(404).json({ error: "Поле не найдено" });
+      }
+      
+      const analysis = await analyzeField({
+        name: field.name,
+        cropType: field.cropType,
+        area: parseFloat(field.area),
+        latitude: parseFloat(field.latitude),
+        longitude: parseFloat(field.longitude),
+      });
+      
+      res.json(analysis);
+    } catch (error) {
+      console.error("Error analyzing field:", error);
+      res.status(500).json({ error: "Ошибка при анализе поля" });
+    }
+  });
+
+  app.get("/api/fields/:id/recommendations/:category", requireAuth, async (req, res) => {
+    try {
+      const userId = req.session.userId!;
+      const { category } = req.params;
+      
+      if (!['fertilizer', 'soil', 'pesticides'].includes(category)) {
+        return res.status(400).json({ error: "Неверная категория" });
+      }
+      
+      const field = await storage.getField(req.params.id);
+      
+      if (!field || field.userId !== userId) {
+        return res.status(404).json({ error: "Поле не найдено" });
+      }
+      
+      const recommendations = await getFieldRecommendations(
+        {
+          name: field.name,
+          cropType: field.cropType,
+          area: parseFloat(field.area),
+        },
+        category as "fertilizer" | "soil" | "pesticides"
+      );
+      
+      res.json(recommendations);
+    } catch (error) {
+      console.error("Error getting recommendations:", error);
+      res.status(500).json({ error: "Ошибка при получении рекомендаций" });
+    }
+  });
+
+  app.post("/api/livestock/:id/feeding-plan", requireAuth, async (req, res) => {
+    try {
+      const userId = req.session.userId!;
+      const livestockItem = await storage.getLivestock(req.params.id);
+      
+      if (!livestockItem || livestockItem.userId !== userId) {
+        return res.status(404).json({ error: "Скот не найден" });
+      }
+      
+      const feedingPlan = await generateFeedingPlan({
+        type: livestockItem.type,
+        count: livestockItem.count,
+      });
+      
+      res.json(feedingPlan);
+    } catch (error) {
+      console.error("Error generating feeding plan:", error);
+      res.status(500).json({ error: "Ошибка при создании плана кормления" });
     }
   });
 
